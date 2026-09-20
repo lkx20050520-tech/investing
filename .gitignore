@@ -11,7 +11,10 @@ htmlcov/
 dist/
 build/
 .env
-data/raw/
-data/processed/
 *.log
 .DS_Store
+
+# local runtime state: price cache, position ledger, trade log, generated
+# reports — all machine/account-specific, never something to commit
+data/
+reports/
