@@ -45,7 +45,7 @@ python run_daily.py --equity 10000
 ## 日常流程
 
 ```
-美股收盘后 (英国时间 21:05 夏令时 / 22:05 冬令时)
+美股收盘后 (英国时间约 21:00，全年基本不变——见下方说明)
     ↓
 python run_daily.py --equity <你的账户权益>
     ↓
@@ -66,6 +66,10 @@ python record.py sell AAPL 191.05
 **台账不准，系统就在用错误的状态给你出信号——比没有系统更危险。**
 
 在 Robinhood 执行完的当天就记，不要拖。
+
+### 关于收盘时间
+
+纽约证券交易所收盘固定在美东时间 16:00。因为英美两国的夏令时基本同步切换（偏移都是 UTC-5/UTC-4 vs UTC+0/UTC+1，时差恒为 5 小时），换算成英国本地时间**全年都约等于 21:00**，不存在"夏天 21:05、冬天 22:05"这种整小时的季节性差异——只有每年 3 月和 10 月两国夏令时切换日期错开的那 1-2 周窗口期会短暂偏差 ±1 小时。定时任务按固定的英国本地时间（比如 21:15，留出安全余量）来跑即可，不需要按季节改时间。
 
 ---
 
@@ -185,6 +189,36 @@ python record.py fix NVDA --shares 10       # 修正记录
 python -m core.backtest --stress --sweep    # 完整回测检验
 python -m tests.test_logic                  # 逻辑验证
 ```
+
+---
+
+## 自动化调度 (可选)
+
+`run_daily.py` 跑完之后，如果配置了 Telegram，会自动把报告摘要 + HTML 存档推到你手机上。**执行仍然是手动的**——这只是省去"记得去跑一下"这一步，买卖本身还是你在 Robinhood 里做。
+
+⚠️ 这台跑定时任务的机器必须能访问 Yahoo Finance 和 Telegram（有些沙箱/云端环境的出站网络会被限制），并且要保留 `data/` 目录不被清空——`data/positions.json` 是持仓状态的唯一来源，换机器或重装系统前先备份这个目录。
+
+### 1. 配置 Telegram
+
+1. 在 Telegram 里找 **@BotFather**，发 `/newbot`，按提示起名字，拿到一个形如 `123456:ABC-...` 的 token。
+2. 找 **@userinfobot**（或任意"get my chat id"类的 bot），发一条消息，拿到你的数字 chat id。
+3. 在项目根目录把 `.env.example` 复制成 `.env`，填入：
+   ```
+   TELEGRAM_BOT_TOKEN=123456:ABC-...
+   TELEGRAM_CHAT_ID=123456789
+   ```
+4. 手动跑一次 `python run_daily.py --equity 10000` 确认能收到 Telegram 推送。不填 `.env` 也没关系——不影响报告正常生成，只是不推送。
+
+### 2. Windows 任务计划程序 (Task Scheduler)
+
+1. 开始菜单搜索"任务计划程序" (Task Scheduler)，选"创建基本任务"。
+2. 触发器选"每天"，时间填 **21:15**（英国本地时间，见上文"关于收盘时间"——全年基本不用因夏令时改动；每年 3/10 月两国夏令时切换错开的那 1-2 周留了足够余量）。
+3. 操作选"启动程序"：
+   - 程序/脚本填 Python 解释器路径，比如 `C:\Users\<你>\AppData\Local\Programs\Python\Python311\python.exe`
+   - 添加参数：`run_daily.py --equity 10000`（换成你的真实权益）
+   - 起始于：项目根目录的完整路径，比如 `C:\Users\<你>\investing`
+4. 在任务属性里勾选"不管用户是否登录都要运行"，并确认电脑在收盘时间不会休眠（电源选项里关掉自动睡眠，或换成"仅在接通电源时休眠"）。
+5. 建好之后右键"运行"手动测试一次，确认能生成报告并收到 Telegram 推送。
 
 ---
 

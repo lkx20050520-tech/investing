@@ -10,8 +10,9 @@
 
 什么时候跑
 ----------
-美股收盘后。英国时间约 21:05 (夏令时) / 22:05 (冬令时)。
-早跑没意义 —— 所有信号都基于收盘价。
+美股收盘后。英国时间约 21:00，英美两国夏令时基本同步切换，全年这个点位差不多
+(只有 3/10 月两国切换日期错开的那 1-2 周会短暂偏差 ±1 小时)。
+建议排 21:15 左右留点余量。早跑没意义 —— 所有信号都基于收盘价。
 
 跑完做什么
 ----------
@@ -31,6 +32,7 @@ import pandas as pd
 
 from core.config import DEFAULT, POSITIONS_FILE
 from core.data import clear_cache, load
+from core.notify import send_telegram_report
 from core.portfolio import load_positions, save_positions, update_trailing_stops
 from core.report import print_report, write_html
 from core.signals import SignalEngine, position_size
@@ -207,6 +209,7 @@ def main() -> None:
     save_positions(positions)
 
     print_report(rep)
+    send_telegram_report(rep)
 
 
 if __name__ == "__main__":
