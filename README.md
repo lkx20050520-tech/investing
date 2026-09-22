@@ -67,6 +67,36 @@ python record.py sell AAPL 191.05
 
 在 Robinhood 执行完的当天就记，不要拖。
 
+### 用券商快照对账（只读）
+
+手动记账一定会出错，而两种错误特别致命：买了忘记记（系统不知道这只票，永远不会给它止损信号），卖了忘记记（系统用幽灵持仓算敞口，新仓位全部算错）。这两种你自己很难发现。
+
+把券商的持仓快照存成 JSON，让程序替你比对：
+
+```json
+{
+  "as_of": "2026-09-22",
+  "equity": 12480.33,
+  "positions": [
+    {"symbol": "NVDA", "shares": 12, "avg_cost": 178.40}
+  ]
+}
+```
+
+```bash
+python record.py reconcile --from-json rh.json
+```
+
+输出会逐项列出差异，并给出该跑哪条 `record.py` 命令去修。有严重不一致时退出码为 1，方便挂进定时任务。
+
+快照怎么拿到：Robinhood 官方 MCP（`agent.robinhood.com/mcp/trading`，OAuth）的只读部分能读出持仓和余额，让 AI 助手把结果按上面格式存成文件即可；手抄也一样能用。字段名容忍 `quantity` / `average_buy_price` 等常见别名。
+
+**三条边界，别误解这个功能：**
+
+1. **它不下单，也不需要下单权限。** 本项目不接券商 API 下单的原则没变。Robinhood 的下单能力被限制在一个需单独注资的 Agentic 账户里，只要你不给它注资，这条路本身就是只读的。
+2. **它不自动改台账。** 只报告 + 给命令，改不改由你确认。原因见第 3 条。
+3. **它替代不了记账。** 券商只知道 symbol / 股数 / 平均成本。它不知道 `peak_price`（持仓期最高价，移动止损的基准）、`stop_price`、`entry_date` —— 这些是系统自己算的内部状态，券商那边不存在。用一个快照去覆盖台账会静默摧毁全部止损状态，所以这件事必须由人来做。
+
 ### 关于收盘时间
 
 纽约证券交易所收盘固定在美东时间 16:00。因为英美两国的夏令时基本同步切换（偏移都是 UTC-5/UTC-4 vs UTC+0/UTC+1，时差恒为 5 小时），换算成英国本地时间**全年都约等于 21:00**，不存在"夏天 21:05、冬天 22:05"这种整小时的季节性差异——只有每年 3 月和 10 月两国夏令时切换日期错开的那 1-2 周窗口期会短暂偏差 ±1 小时。定时任务按固定的英国本地时间（比如 21:15，留出安全余量）来跑即可，不需要按季节改时间。
@@ -163,12 +193,13 @@ core/
   data.py        yfinance 下载 + parquet 缓存 + 质量检查
   signals.py     信号引擎 (面板向量化，含前视偏差防护)
   portfolio.py   本地持仓台账 (手动执行模式的核心)
+  reconcile.py   台账 ↔ 券商快照对账 (纯函数，只读，无网络)
   backtest.py    回测 + 统计 + 参数扫描 + 压力测试
   report.py      终端报告 + HTML 存档
 run_daily.py     每日入口
 record.py        记账工具
 tests/
-  test_logic.py  56 项断言，改代码后必跑
+  test_logic.py  86 项断言，改代码后必跑
 ```
 
 ---
@@ -185,6 +216,7 @@ python run_daily.py --date 2026-06-15       # 回看某天的信号（调试）
 python record.py list                       # 当前持仓
 python record.py stats                      # 真实交易统计
 python record.py fix NVDA --shares 10       # 修正记录
+python record.py reconcile --from-json rh.json   # 和券商快照对账
 
 python -m core.backtest --stress --sweep    # 完整回测检验
 python -m tests.test_logic                  # 逻辑验证

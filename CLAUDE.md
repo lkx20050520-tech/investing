@@ -15,6 +15,7 @@ pip install -r requirements.txt
 - 过拟合检验 (不能跳过): `python -m core.backtest --sweep`
 - 生成今日信号: `python run_daily.py --equity <权益>`
 - 记账: `python record.py buy|sell|list|stats|fix ...`
+- 券商对账 (只读，不改台账): `python record.py reconcile --from-json <券商快照.json>`
 
 ## Layout
 
@@ -24,19 +25,23 @@ core/universe.py    股票池 (含幸存者偏差说明)
 core/data.py        yfinance 下载 + parquet 缓存 + 质量检查
 core/signals.py     信号引擎，面板向量化，含前视偏差防护
 core/portfolio.py   本地持仓台账 (手动执行模式的状态核心)
+core/reconcile.py   台账 ↔ 券商快照对账 (纯函数，只读，无网络)
 core/backtest.py    回测 + 统计 + 参数扫描 + 压力测试
 core/report.py      终端报告 + HTML 存档
 run_daily.py        每日入口
 record.py           记账 CLI
-tests/test_logic.py 56 项断言
+tests/test_logic.py 86 项断言
 ```
 
 ## 改代码时必须遵守的约束
 
-1. **改了 `core/` 下任何文件，必须重跑 `python -m tests.test_logic`**，56 项断言要全过。
+1. **改了 `core/` 下任何文件，必须重跑 `python -m tests.test_logic`**，86 项断言要全过。
 2. **不要为了让回测好看而调参数**。参数的理由都写在 `core/config.py` 的注释里，改之前先读。改完必须重跑 `--sweep` 确认仍然平滑。
 3. **前视偏差是最致命的 bug**。`core/signals.py` 里的 momentum 用 `shift(21)/shift(252)`，任何改动都不能破坏这一点。`tests/test_logic.py::test_no_lookahead` 专门验证：截断未来数据后，历史信号必须完全不变。
 4. **不要接券商 API 下单**。用户明确选择手动执行；`core/portfolio.py` 的本地台账是状态的唯一来源。
+   只读地把券商持仓/余额拿进来做**对账**是允许的 (`core/reconcile.py`)，但它只报告差异、
+   绝不自动改台账 —— 券商没有 `peak_price`/`stop_price`/`entry_date`，用快照覆盖台账
+   会静默摧毁全部止损状态。修正必须由用户确认后手动执行。
 
 ## 已知的设计取舍（不是 bug，不用"修"）
 
