@@ -13,6 +13,7 @@
   3. 风险约束是否被遵守 (无杠杆、持仓数上限、单笔风险)
   4. 移动止损只升不降
   5. 台账读写和盈亏计算
+  6. 券商对账能检出漏记，且绝不自动改台账
 """
 
 from __future__ import annotations
@@ -31,6 +32,8 @@ from core.backtest import Backtest, sweep
 from core.config import Config
 from core.portfolio import (Position, close_position, load_positions,
                             open_position, save_positions, update_trailing_stops)
+from core.reconcile import (BrokerPosition, diff_positions,
+                            parse_broker_snapshot)
 from core.signals import SignalEngine, atr, ema, position_size
 
 PASS, FAIL = "✓", "✗"
@@ -326,6 +329,123 @@ def test_portfolio_ledger():
         check(len(df) == 1 and df.iloc[0]["symbol"] == "AAPL", "流水内容正确")
 
 
+def test_reconcile():
+    print("\n[7b] 券商对账")
+    ledger = {
+        "AAPL": Position(symbol="AAPL", shares=10, entry_price=190.0,
+                         entry_date="2024-01-02", stop_price=180.0,
+                         peak_price=200.0, initial_stop=180.0),
+        "MSFT": Position(symbol="MSFT", shares=5, entry_price=400.0,
+                         entry_date="2024-01-05", stop_price=380.0,
+                         peak_price=410.0, initial_stop=380.0),
+    }
+
+    # --- 完全一致 ---
+    same = [BrokerPosition("AAPL", 10, 190.0), BrokerPosition("MSFT", 5, 400.0)]
+    r = diff_positions(ledger, same)
+    check(r.ok and len(r.matched) == 2, "两边完全一致时无差异")
+
+    # --- 券商有、台账没有：最危险，这只票没有任何止损保护 ---
+    r = diff_positions(ledger, same + [BrokerPosition("NVDA", 12, 178.40)])
+    kinds = {d.kind: d for d in r.issues}
+    check("missing_in_ledger" in kinds, "券商有而台账没有的持仓被检出")
+    check(kinds["missing_in_ledger"].severity == "critical",
+          "漏记买入被判为严重 (系统不会给它卖出信号)")
+    check("record.py buy NVDA 12 178.40" in kinds["missing_in_ledger"].suggestion,
+          "给出了可直接执行的补记命令")
+
+    # --- 台账有、券商没有：幽灵持仓，敞口算错 ---
+    r = diff_positions(ledger, [BrokerPosition("AAPL", 10, 190.0)])
+    kinds = {d.kind: d for d in r.issues}
+    check("missing_at_broker" in kinds, "台账有而券商没有的持仓被检出")
+    check(kinds["missing_at_broker"].severity == "critical", "漏记卖出被判为严重")
+    check(kinds["missing_at_broker"].symbol == "MSFT", "定位到正确的标的")
+
+    # --- 股数不一致 ---
+    r = diff_positions(ledger, [BrokerPosition("AAPL", 8, 190.0),
+                                BrokerPosition("MSFT", 5, 400.0)])
+    kinds = {d.kind: d for d in r.issues}
+    check("shares_mismatch" in kinds and kinds["shares_mismatch"].severity == "critical",
+          "股数不一致被判为严重 (影响风险预算)")
+    check("--shares 8" in kinds["shares_mismatch"].suggestion, "股数修正命令正确")
+
+    # --- 成本价：小偏差容忍，大偏差报警 ---
+    r = diff_positions(ledger, [BrokerPosition("AAPL", 10, 190.4),
+                                BrokerPosition("MSFT", 5, 400.0)])
+    check(r.ok, "成本价 0.2% 的偏差在容差内，不报假警 (券商记的是加权均价)")
+
+    r = diff_positions(ledger, [BrokerPosition("AAPL", 10, 205.0),
+                                BrokerPosition("MSFT", 5, 400.0)])
+    kinds = {d.kind: d for d in r.issues}
+    check("cost_mismatch" in kinds, "成本价大幅偏离被检出")
+    check(kinds["cost_mismatch"].severity == "warning",
+          "成本价偏差只是注意级 (不影响止损，止损基于 peak_price)")
+
+    # --- 碎股：台账是 int，存不进去 ---
+    r = diff_positions(ledger, [BrokerPosition("AAPL", 10.5, 190.0),
+                                BrokerPosition("MSFT", 5, 400.0)])
+    kinds = {d.kind: d for d in r.issues}
+    check("fractional_shares" in kinds, "碎股被检出 (台账只支持整数股)")
+    check(kinds["fractional_shares"].suggestion == "",
+          "碎股不给修正命令 (fix --shares 只收整数，给了会执行失败)")
+
+    # --- 权益偏差 ---
+    r = diff_positions(ledger, same, ledger_equity=10_000.0, broker_equity=12_500.0)
+    kinds = {d.kind: d for d in r.issues}
+    check("equity_drift" in kinds and kinds["equity_drift"].severity == "info",
+          "权益偏差被提示 (仓位大小按权益算)")
+    r2 = diff_positions(ledger, same, ledger_equity=10_000.0, broker_equity=10_050.0)
+    check(r2.ok, "权益 0.5% 的偏差在容差内，不报警")
+
+    # --- 纯函数：不能修改输入 ---
+    before = {s: (p.shares, p.entry_price, p.peak_price, p.stop_price)
+              for s, p in ledger.items()}
+    diff_positions(ledger, [BrokerPosition("AAPL", 999, 1.0)])
+    after = {s: (p.shares, p.entry_price, p.peak_price, p.stop_price)
+             for s, p in ledger.items()}
+    check(before == after, "对账是纯函数，不会偷偷改台账 (修正必须由人确认)")
+
+    # --- 快照解析：字段别名 ---
+    payload = {
+        "as_of": "2026-09-22",
+        "equity": 12480.33,
+        "positions": [
+            {"ticker": " nvda ", "quantity": "12", "average_buy_price": "178.40"},
+            {"symbol": "TSLA", "qty": 0, "avg_cost": 200.0},
+        ],
+    }
+    bp, eq, as_of = parse_broker_snapshot(payload)
+    check(len(bp) == 1, "股数为 0 的条目被忽略 (券商会留着已平仓的票)")
+    check(bp[0].symbol == "NVDA", "symbol 被归一化为大写去空格")
+    check(bp[0].shares == 12.0 and bp[0].avg_cost == 178.40, "字符串数字被正确解析")
+    check(eq == 12480.33 and as_of == "2026-09-22", "权益和快照日期被解析")
+
+    bp2, eq2, _ = parse_broker_snapshot('{"positions": []}')
+    check(bp2 == [] and eq2 is None, "空持仓 + 无权益字段可正常解析")
+
+    # --- 快照解析：坏输入必须明确报错，不能静默当成空仓 ---
+    for bad, why in [
+        ({"positions": [{"symbol": "A", "shares": 1}, {"symbol": "A", "shares": 2}]},
+         "同一标的出现两次"),
+        ({"equity": 100}, "缺少 positions 字段"),
+        ({"positions": [{"shares": 1}]}, "持仓缺少 symbol"),
+        ({"positions": [{"symbol": "A"}]}, "持仓缺少股数"),
+        ({"positions": [{"symbol": "A", "shares": "abc"}]}, "股数不是数字"),
+        ({"positions": {}}, "positions 不是数组"),
+        ({"positions": [], "equity": -5}, "权益为负"),
+    ]:
+        try:
+            parse_broker_snapshot(bad)
+            check(False, f"坏快照应当报错: {why}")
+        except ValueError:
+            check(True, f"坏快照被拒绝: {why}")
+
+    # 缺成本价时跳过成本比对，而不是崩掉
+    bp3, _, _ = parse_broker_snapshot({"positions": [{"symbol": "AAPL", "shares": 10}]})
+    r = diff_positions({"AAPL": ledger["AAPL"]}, bp3)
+    check(r.ok, "券商没给成本价时跳过成本比对，不报错也不报假警")
+
+
 def test_param_sensitivity(data):
     print("\n[8] 参数敏感性 (过拟合检测)")
     cfg = Config()
@@ -381,6 +501,7 @@ def main() -> int:
     test_exit_logic(data)
     test_trailing_stop()
     test_portfolio_ledger()
+    test_reconcile()
     test_param_sensitivity(data)
     test_report_shape(data)
 

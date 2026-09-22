@@ -9,6 +9,7 @@
     python record.py list                          # 查看当前持仓
     python record.py stats                         # 真实交易统计
     python record.py fix  NVDA --shares 10         # 修正记录
+    python record.py reconcile --from-json rh.json # 和券商快照对账
 
 ⚠️ 为什么这步不能省
 --------------------
@@ -23,6 +24,7 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import date as _date
+from pathlib import Path
 
 import numpy as np
 
@@ -182,6 +184,62 @@ def cmd_fix(args) -> None:
         print(f"  {c}")
 
 
+def cmd_reconcile(args) -> None:
+    """
+    和券商快照对账。只读、只报告 —— 不自动改台账。
+
+    为什么不自动改：台账里的 peak_price / stop_price 是券商没有的内部状态，
+    用一个可能过期或不完整的快照去覆盖，会静默摧毁全部止损状态。
+    所以这里只打印该跑哪条命令，由你确认后自己执行。
+    """
+    from core.reconcile import diff_positions, parse_broker_snapshot
+
+    src = args.from_json
+    try:
+        raw = sys.stdin.read() if src == "-" else Path(src).read_text(encoding="utf-8")
+    except OSError as e:
+        sys.exit(f"读不到券商快照: {e}")
+
+    try:
+        broker, broker_equity, as_of = parse_broker_snapshot(raw)
+    except ValueError as e:      # JSONDecodeError 也是 ValueError
+        sys.exit(f"券商快照格式有问题: {e}")
+
+    positions = load_positions()
+    res = diff_positions(
+        positions, broker,
+        ledger_equity=args.equity if args.equity is not None else DEFAULT.equity,
+        broker_equity=broker_equity,
+        as_of=as_of,
+    )
+
+    stamp = f" (快照日期 {res.as_of})" if res.as_of else ""
+    print(f"\n对账{stamp}：台账 {len(positions)} 只，券商 {len(broker)} 只\n")
+
+    if res.ok:
+        print(f"  ✓ 完全一致（{len(res.matched)} 只匹配）")
+    else:
+        sev_label = {"critical": "严重", "warning": "注意", "info": "提示"}
+        for d in res.issues:
+            tag = sev_label.get(d.severity, d.severity)
+            head = f"{d.symbol} " if d.symbol else ""
+            print(f"  [{tag}] {head}{d.detail}")
+            if d.suggestion:
+                print(f"         → {d.suggestion}")
+            print()
+        if res.matched:
+            print(f"  ✓ 另有 {len(res.matched)} 只完全匹配: {', '.join(res.matched)}\n")
+
+    n_crit = len(res.critical)
+    if n_crit:
+        print(f"  ⚠️ {n_crit} 项严重不一致。在修完之前，系统出的信号是基于错误状态的。")
+
+    print("  注：peak_price / stop_price / entry_date 券商没有，无法对账 —— "
+          "这几个字段只能靠系统自己维护。")
+
+    sys.exit(1 if n_crit else 0)
+
+
 # =============================================================================
 def main() -> None:
     ap = argparse.ArgumentParser(description="持仓台账")
@@ -212,6 +270,13 @@ def main() -> None:
     f.add_argument("--peak-price", type=float, default=None, dest="peak_price")
     f.add_argument("--entry-date", default=None, dest="entry_date")
     f.set_defaults(func=cmd_fix)
+
+    r = sub.add_parser("reconcile", help="和券商持仓快照对账 (只读，不改台账)")
+    r.add_argument("--from-json", required=True, dest="from_json",
+                   help="券商快照 JSON 文件路径，'-' 表示从 stdin 读")
+    r.add_argument("--equity", type=float, default=None,
+                   help="台账侧权益，默认用 config.py 里的值")
+    r.set_defaults(func=cmd_reconcile)
 
     args = ap.parse_args()
     args.func(args)
