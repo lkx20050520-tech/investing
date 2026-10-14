@@ -429,7 +429,7 @@ const L=[
 ];
 const SC={words2:(p)=>S.words(p,true),antibody2:(p)=>S.antibody(p,true),days2:(p)=>S.days(p,true),sink2b:(p)=>S.sink(p,true),days3:(p)=>S.days(p,true),sink3:(p)=>S.sink(p,true)};
 const END=256.6;
-const LYR_OFF=.4; // 歌词整体延后，贴合人声起音
+const LYR_OFF=0; // 与第一版一致的时间轴
 L.forEach((l,i)=>{l.t=l[0]+LYR_OFF;l.text=l[1];l.sc=l[2];l.note=l[3];l.end=i<L.length-1?L[i+1][0]+LYR_OFF:END});
 
 /* ---------- 合成：镜头、辉光、颗粒、字幕 ---------- */
@@ -492,7 +492,7 @@ function compose(t){
     txt('孙盛希  Shi Shi',640,276,26,'#3a3f78',a,10,'rgba(255,255,255,.9)');
     txt('Where is SHI?',640,312,17,'#5a5f98',a*.8,6,'rgba(255,255,255,.8)')}
   // 歌词字幕：淡入上浮、尾部淡出
-  if(!intro&&l.text!=='—'){const dl=t-l.t,du=l.end-l.t,a=clamp(dl/.5)*clamp((du-dl)/.45),rise=(1-ease(dl/.5))*10;
+  if(!intro&&l.text!=='—'){const dl=t-l.t,du=l.end-l.t,a=clamp(dl/.12)*clamp((du-dl)/.1),rise=(1-ease(dl/.12))*4; // 到点即出，停到下一句
     txt(l.text,640,654+rise,36,'#fff',a,5,'rgba(120,90,200,.9)',500)}
   // 片尾字幕
   if(t>=L[L.length-1].t){const cs=L[L.length-1].t+1;let y=262;
