@@ -12,9 +12,9 @@ main{max-width:980px;margin:0 auto;padding:16px}
 #stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden}
 canvas{width:100%;height:100%;display:block;image-rendering:pixelated}
 #cap{position:absolute;left:0;right:0;bottom:5%;text-align:center;font-size:clamp(16px,3.4vw,30px);letter-spacing:.08em;text-shadow:0 0 8px #000,0 2px 2px #000;padding:0 4%;transition:opacity .3s}
-#title{position:absolute;inset:0 0 40% 0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;transition:opacity 1.5s;text-shadow:0 0 18px var(--vio)}
+#title{position:absolute;inset:0 0 40% 0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;transition:opacity 1.5s;color:#232a58;text-shadow:0 0 22px #fff,0 0 8px #fff}
 #title b{font-size:clamp(34px,9vw,84px);letter-spacing:.3em;font-weight:600}
-#title span{font-size:clamp(13px,2.4vw,22px);color:#cfc4ee;margin-top:.6em;letter-spacing:.2em}
+#title span{font-size:clamp(13px,2.4vw,22px);color:#3a3f78;margin-top:.6em;letter-spacing:.2em}
 .ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
 button,label.btn{background:#1b1f38;color:var(--fg);border:1px solid #343a63;border-radius:6px;padding:8px 12px;font-size:14px;cursor:pointer}
 button:hover,label.btn:hover{border-color:var(--vio)}
@@ -112,12 +112,19 @@ function sky(x,y,w,h,q=1){
   const mx=x+w*.72,my=y+h*.3;R(mx-3,my-4,6,8,'#f4f0d2');R(mx-4,my-3,8,6,'#f4f0d2');R(mx-1,my-3,5,6,'#0a0e24');
 }
 function win(x,y,w,h,q){R(x-2,y-2,w+4,h+4,'#4a4468');sky(x,y,w,h,q);R(x+w/2-1,y,2,h,'#4a4468');R(x,y+h/2-1,w,2,'#4a4468');R(x-4,y+h+2,w+8,3,'#5a5480')}
+const mood=()=>clamp((T-10)/105,0,.88); // 感染越深，房间越暗越紫
+const wallC=(side=0)=>mix(side?'#c9cddc':'#e6e8f0','#2a2548',mood());
+const floorC=()=>mix('#2f58b8','#1e1a40',mood());
 function room(o={}){
-  R(0,0,W,H,o.wall||'#1a1f38');
-  for(let i=0;i<W;i+=16)R(i,0,1,FL,'#1e2442');
-  R(0,FL,W,H-FL,o.floor||'#2b2540');R(0,FL,W,1,'#3d3560');
+  const m=mood(),cx=196;
+  R(0,0,cx,FL,wallC(0));R(cx,0,W-cx,FL,wallC(1));            // 墙角：左亮右暗
+  R(cx,0,1,FL,mix('#a9aec4','#17142e',m));
+  R(0,FL-3,W,3,mix('#f2f3f8','#3a3560',m));                    // 踢脚线
+  R(0,FL,W,H-FL,floorC());
+  for(let x=0;x<W;x+=6)for(let y=FL+2;y<H;y+=6)if(hs(x*7+y)>.55)R(x,y,2,1,mix('#3d69cc','#2a2458',m)); // 地毯纹理
   if(o.win!==false)win(232,26,54,50);
-  if(o.lamp){A(.12);R(40,30,60,95,'#ffe9a8');A(1);R(66,28,8,4,'#d9b25a');R(69,32,2,40,'#6a6280')}
+  A(.9);R(cx+8,FL+4,26,7,'#d6384a');R(cx+10,FL+2,22,3,'#e8566a');A(1);  // 封面里的红色：墙角的红垫子
+  if(o.lamp){A(.1);R(40,30,60,95,'#fff3c0');A(1)}
 }
 function vig(a){ // 暗角
   for(let i=0;i<6;i++){A(a/6);R(0,0,W,i*4,'#000');R(0,H-i*4,W,i*4,'#000');R(0,0,i*6,H,'#000');R(W-i*6,0,i*6,H,'#000')}A(1);
@@ -214,7 +221,7 @@ S.antibody=(p,hard)=>{R(0,0,W,H,'#06101e');
   A(.5);R(160-pul-6,96,2*pul+12,1,VIO);A(1)};
 
 S.days=(p,hard)=>{
-  R(0,0,W,H,hard?'#1e1a30':'#1c2a38');R(0,FL,W,H-FL,hard?'#2a2040':'#26384a');
+  R(0,0,W,H,wallC());R(0,FL-3,W,3,mix('#f2f3f8','#3a3560',mood()));R(0,FL,W,H-FL,floorC());
   const d=Math.floor(p*7.99);
   for(let i=0;i<8;i++){const x=40+i*30;R(x,16,24,22,WHT);R(x,16,24,5,i<=d?RED:'#c04050');
     if(i<d){R(x+4,26,16,2,'#7a3040');R(x+4,30,10,2,'#7a3040')}
@@ -225,13 +232,13 @@ S.days=(p,hard)=>{
   A(.3);R(CX-20,CY+14,60,2,'#000');A(1)};
 
 S.sink=(p,hard)=>{
-  R(0,0,W,H,hard?'#1a1630':'#17182c');
+  R(0,0,W,H,wallC());R(0,FL-3,W,3,mix('#f2f3f8','#3a3560',mood()));
   const sk=Math.floor(p*6)*2.2;
   const fy=FL+(hard?0:0);
-  R(0,fy,W,H-fy,mix('#2b2540',VIO,.35+p*.3));
+  R(0,fy,W,H-fy,mix(floorC(),VIO,.35+p*.3));
   crab(CX,CY+sk,{tint:hard?.7+p*.2:.45+p*.25,eyes:p>.5?'half':'open',mouth:'flat',arms:'down',bob:false});
   // 沼泽盖住下半身
-  R(0,fy,W,H-fy,mix('#2b2540',VIO,.35+p*.3));R(CX-14,fy-1,60,1,'#7a3aa8');
+  R(0,fy,W,H-fy,mix(floorC(),VIO,.35+p*.3));R(CX-14,fy-1,60,1,'#7a3aa8');
   for(let r=0;r<3;r++){const q=(T*.7+r/3)%1;A(1-q);R(CX+8-q*26,fy+1,q*52,1,'#d8a8ff');A(1)}
   for(let i=0;i<5;i++){const q=(T*.5+i/5)%1;A(1-q);R(CX-6+i*7,fy-q*10,1,1,'#d8a8ff')}A(1)};
 
