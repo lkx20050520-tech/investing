@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>潜伏期 · MV</title>
+<style>
+:root{--bg:#0b0d18;--fg:#e8ecf8;--dim:#8d93b0;--vio:#b44cff;--org:#e07a4f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+main{max-width:980px;margin:0 auto;padding:16px}
+#stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden}
+canvas{width:100%;height:100%;display:block;image-rendering:pixelated}
+#cap{position:absolute;left:0;right:0;bottom:5%;text-align:center;font-size:clamp(16px,3.4vw,30px);letter-spacing:.08em;text-shadow:0 0 8px #000,0 2px 2px #000;padding:0 4%;transition:opacity .3s}
+#title{position:absolute;inset:0 0 40% 0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;transition:opacity 1.5s;text-shadow:0 0 18px var(--vio)}
+#title b{font-size:clamp(34px,9vw,84px);letter-spacing:.3em;font-weight:600}
+#title span{font-size:clamp(13px,2.4vw,22px);color:#cfc4ee;margin-top:.6em;letter-spacing:.2em}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
+button,label.btn{background:#1b1f38;color:var(--fg);border:1px solid #343a63;border-radius:6px;padding:8px 12px;font-size:14px;cursor:pointer}
+button:hover,label.btn:hover{border-color:var(--vio)}
+input[type=range]{flex:1;min-width:160px;accent-color:var(--vio)}
+#tm{font-variant-numeric:tabular-nums;color:var(--dim);min-width:92px}
+.hint{color:var(--dim);font-size:13px;line-height:1.7;margin:6px 0 14px}
+h2{font-size:16px;margin:22px 0 8px;font-weight:600}
+#sb{border-top:1px solid #23284a}
+.row{display:grid;grid-template-columns:48px 1fr;gap:2px 10px;padding:8px 6px;border-bottom:1px solid #1a1e38;cursor:pointer;border-left:3px solid transparent}
+.row.on{background:#171a33;border-left-color:var(--vio)}
+.row .t{color:var(--dim);font-size:12px;grid-row:span 2;font-variant-numeric:tabular-nums;padding-top:2px}
+.row .l{font-size:15px}.row .n{font-size:13px;color:var(--dim)}
+@media(max-width:600px){main{padding:12px}}
+</style>
+</head>
+<body>
+<main>
+<div id="stage"><canvas id="c" width="320" height="180"></canvas><div id="cap"></div>
+<div id="title"><b>潜伏期</b><span>孙盛希 Shi Shi</span></div></div>
+
+<div class="ctl">
+  <button id="play">▶ 播放</button>
+  <input type="range" id="seek" min="0" max="1000" value="0">
+  <span id="tm">0:00 / 0:00</span>
+</div>
+<div class="ctl">
+  <label class="btn">🎵 载入歌曲音频<input id="aud" type="file" accept="audio/*" hidden></label>
+  <button id="c1" disabled>校准①：此刻唱到「毫无征兆」</button>
+  <button id="c2" disabled>校准②：此刻「渐渐沦陷」唱完（第二遍副歌结尾）</button>
+  <button id="fs">全屏</button>
+</div>
+<p class="hint">
+  没载入音频时，画面按预估时间轴自己走。载入你本地的歌曲文件后，播放到「毫无征兆」第一次出现时点校准①，
+  播放到最后一遍「渐渐沦陷」唱完时点校准②，所有画面就会按真实歌曲拉伸对齐。校准后也可用键盘 ← → 微调 0.5 秒，空格暂停。
+</p>
+<h2>分镜：每一句歌词 ↔ 对应画面（点击可跳转）</h2>
+<div id="sb"></div>
+</main>
+
+<script>
+const W=320,H=180,FL=125;
+const c=document.getElementById('c'),g=c.getContext('2d');g.imageSmoothingEnabled=false;
+const ORG='#e07a4f',ORGD='#b0502e',VIO='#b44cff',VIOD='#5b1f8a',RED='#ff4d5e',WHT='#e8ecf8';
+const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x)),lerp=(a,b,t)=>a+(b-a)*t,ease=p=>{p=clamp(p);return p*p*(3-2*p)};
+const hx=s=>[1,3,5].map(i=>parseInt(s.slice(i,i+2),16));
+const mix=(a,b,t)=>{const A=hx(a),B=hx(b);return'#'+A.map((v,i)=>Math.round(lerp(v,B[i],clamp(t))).toString(16).padStart(2,'0')).join('')};
+const hs=n=>{const s=Math.sin(n*127.1+311.7)*43758.5453;return s-Math.floor(s)};
+let T=0;
+const R=(x,y,w,h,col)=>{if(col)g.fillStyle=col;g.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h))};
+const A=a=>{g.globalAlpha=clamp(a)};
+
+/* ---------- 小螃蟹 ---------- */
+const K=2;
+const cl=(x,y,lx,ly)=>[x+8+(lx-8)*K,y+13+(ly-13)*K];
+function crab(x,y,o={}){
+  const ks=o.k||K;g.save();g.translate(Math.round(x+8),Math.round(y+13));g.scale(ks,ks);x=-8;y=-13;
+  const tint=o.tint||0,body=o.col||mix(ORG,VIO,tint),dk=o.dk||mix(ORGD,VIOD,tint);
+  const sh=o.shiver?Math.round(Math.sin(T*45)*o.shiver):0;x+=sh;
+  const dy=o.bob===false?0:Math.round(Math.sin(T*3)*.6);y+=dy;
+  for(let i=0;i<4;i++)R(x+2+i*4,y+10,2,3,dk);
+  const k=o.cover||0,ar=o.arms||'side';
+  const ay=ar==='up'?y-3:ar==='down'?y+7:y+2;
+  const lx=lerp(x-4,x+3,k),rx=lerp(x+16,x+9,k),cy=lerp(ay,y+4,k);
+  R(lx,cy,4,3,body);R(lx-1,cy-1,2,2,body);R(rx,cy,4,3,body);R(rx+3,cy-1,2,2,body);
+  R(x,y,16,10,body);R(x,y+8,16,2,dk);
+  if(o.coat){R(x-1,y+4,18,7,'#3b6ea8');R(x-1,y+4,18,1,'#5b8ec8');R(x+7,y+4,2,7,'#2c5486');R(x+10,y+6,1,1,WHT);R(x+10,y+8,1,1,WHT)}
+  const e=o.eyes||'open',ex=[x+4,x+10],ey=y+2;
+  const eye=(X)=>{
+    if(e==='open'){R(X,ey,2,3,'#14131f');R(X,ey,1,1,WHT)}
+    else if(e==='half'){R(X,ey+1,2,2,'#14131f');R(X,ey,2,1,dk)}
+    else if(e==='closed'){R(X-.5,ey+2,3,1,'#14131f')}
+    else if(e==='happy'){R(X-.5,ey+2,1,1,'#14131f');R(X+.5,ey+1,1,1,'#14131f');R(X+1.5,ey+2,1,1,'#14131f')}
+    else if(e==='heart'){R(X-1,ey,1,1,RED);R(X+1,ey,1,1,RED);R(X-1,ey+1,3,1,RED);R(X,ey+2,1,1,RED);R(X,ey+1,1,1,'#ff9aa5')}
+    else if(e==='spiral'){R(X-.5,ey,3,3,VIO);R(X+.5,ey+1,1,1,'#14131f')}
+  };
+  ex.forEach(eye);
+  if(o.mouth==='smile'){R(x+5,y+6,1,1,'#14131f');R(x+6,y+7,4,1,'#14131f');R(x+10,y+6,1,1,'#14131f')}
+  if(o.mouth==='flat')R(x+6,y+7,4,1,'#14131f');
+  g.restore();
+}
+function virus(x,y,r,a=1){
+  A(.22*a);R(x-r-2,y-r-2,2*r+5,2*r+5,VIO);A(.4*a);R(x-r-1,y-r-1,2*r+3,2*r+3,VIO);A(a);
+  R(x-r,y-r,2*r+1,2*r+1,VIO);R(x-r+1,y-r+1,Math.max(1,r-1),Math.max(1,r-1),'#e0a8ff');
+  R(x-1,y-r-2,2,2,VIO);R(x-1,y+r+1,2,2,VIO);R(x-r-2,y-1,2,2,VIO);R(x+r+1,y-1,2,2,VIO);
+  R(x-r-1,y-r-1,1,1,VIO);R(x+r+1,y-r-1,1,1,VIO);R(x-r-1,y+r+1,1,1,VIO);R(x+r+1,y+r+1,1,1,VIO);
+  A(1);
+}
+function pain(x,y,a=1){A(a);R(x,y,1,3,RED);R(x+1,y+3,1,3,RED);R(x,y+6,1,3,RED);R(x-1,y+2,1,1,'#ffb3ba');A(1)}
+
+/* ---------- 场景元素 ---------- */
+function sky(x,y,w,h,q=1){
+  R(x,y,w,h,'#0a0e24');
+  const n=Math.ceil(w*h/120);
+  for(let i=0;i<n;i++)if(Math.sin(T*2+i*3.1)>-.4*q)R(x+hs(i)*(w-1),y+hs(i+50)*(h-1),1,1,i%5?'#cfd6ff':'#fff7c0');
+  const mx=x+w*.72,my=y+h*.3;R(mx-3,my-4,6,8,'#f4f0d2');R(mx-4,my-3,8,6,'#f4f0d2');R(mx-1,my-3,5,6,'#0a0e24');
+}
+function win(x,y,w,h,q){R(x-2,y-2,w+4,h+4,'#4a4468');sky(x,y,w,h,q);R(x+w/2-1,y,2,h,'#4a4468');R(x,y+h/2-1,w,2,'#4a4468');R(x-4,y+h+2,w+8,3,'#5a5480')}
+function room(o={}){
+  R(0,0,W,H,o.wall||'#1a1f38');
+  for(let i=0;i<W;i+=16)R(i,0,1,FL,'#1e2442');
+  R(0,FL,W,H-FL,o.floor||'#2b2540');R(0,FL,W,1,'#3d3560');
+  if(o.win!==false)win(232,26,54,50);
+  if(o.lamp){A(.12);R(40,30,60,95,'#ffe9a8');A(1);R(66,28,8,4,'#d9b25a');R(69,32,2,40,'#6a6280')}
+}
+function vig(a){ // 暗角
+  for(let i=0;i<6;i++){A(a/6);R(0,0,W,i*4,'#000');R(0,H-i*4,W,i*4,'#000');R(0,0,i*6,H,'#000');R(W-i*6,0,i*6,H,'#000')}A(1);
+}
+function water(level,a=.55,t=1){ // level: 水面y
+  A(a);R(0,level,W,H-level,'#1a2e6a');A(a*.6);R(0,level,W,H-level,VIOD);A(1);
+  for(let x=0;x<W;x+=2){const yy=level+Math.sin(x*.12+T*2.2)*1.5;R(x,yy,2,1,'#7a8cff')}
+}
+function bubbles(cx,cy,n,spread=12){for(let i=0;i<n;i++){const q=(T*.5+hs(i))%1;const x=cx+Math.sin(i*5+T)*spread,y=cy-q*60;A(1-q);R(x,y,2,2,'#9fb4ff');R(x+.5,y+.5,1,1,'#fff');}A(1)}
+function silhouette(cx,cy,s,col,jag){ // 缩放的螃蟹剪影
+  g.save();g.translate(cx,cy);g.scale(s,s);crab(-8,-5,{col,dk:col,bob:false,k:1});g.restore();
+}
+
+/* ---------- 20 个场景 ---------- */
+const S={};
+const CX=152,CY=112;
+
+S.intro=p=>{room({lamp:true});crab(CX,CY,{});const t=cl(CX,CY,12,4);A(.15+.25*Math.sin(T*3)**2);R(t[0],t[1],2,2,VIO);A(1)};
+
+S.speck=p=>{room({lamp:true});crab(CX,CY);const e=ease(p);
+  const tg=cl(CX,CY,12,4),x=lerp(258,tg[0],e),y=lerp(52,tg[1],e)+Math.sin(p*20)*2;
+  A(1-e*.9);R(x,y,1,1,VIO);R(x-1,y,1,1,'#7a3aa8');A(1);
+  A(.2+.3*(Math.sin(T*4)>0));if(e>.95)R(tg[0],tg[1],2,2,VIO);A(1)};
+
+S.nobody=p=>{room({lamp:true});crab(CX,CY);
+  const cols=['#5a7fc0','#7ab08a','#c0a05a'];
+  for(let i=0;i<3;i++){
+    const q=p*1.3-i*.28;if(q<0||q>1)continue;
+    let x=lerp(-14,W+4,q);const stop=Math.abs(x-(CX+8))<22&&q>.3;
+    const wy=112+i%2*3,leg=Math.floor(T*6+i)%2;
+    R(x,wy,6,7,cols[i]);R(x+1,wy-4,4,4,'#f0d0b0');R(x+1,wy-4,4,1,'#3a3040');
+    R(x+(leg?0:3),wy+7,2,3,'#2a2a40');R(x+(leg?3:0),wy+7,2,3,'#2a2a40');
+    if(Math.abs(x-(CX+8))<26){R(x+2,wy-8,1,2,WHT);R(x+2,wy-5.5,1,1,WHT);}
+  }};
+
+S.coat=p=>{room({wall:'#162036',floor:'#222a42',lamp:false,win:true});crab(CX,CY,{coat:true,shiver:1,tint:.1,arms:'down',eyes:'half'});
+  for(let i=0;i<6;i++){const a=T*20+i*2;R(CX-14+Math.sin(a)*3+i*8,CY-12+((T*8+i*7)%18),1,2,'#8fb4ff')}
+  for(let i=0;i<4;i++){const q=(T*.6+i*.25)%1;A(1-q);R(CX+10+i*3-q*4,CY-12-q*18,2,2,'#dce8ff');}A(1)};
+
+S.bed=p=>{room({lamp:true});
+  R(70,104,150,6,'#6b4a36');R(70,110,150,16,'#5a3d2c');R(70,126,4,6,'#3a281c');R(216,126,4,6,'#3a281c');
+  R(72,100,18,6,'#dfe3f0'); // 枕头
+  const e=ease((p-.35)/.4);
+  crab(130,95,{eyes:p<.35?'open':'closed',mouth:(p<.25&&p>.1)?'flat':null,tint:.15,bob:false});
+  R(100,108,120,3,'#e8ecf8');
+  const top=lerp(114,91,e);R(96,top,126,110-top+2,'#4a5fa0');R(96,top,126,2,'#6a80c4');
+  for(let i=0;i<5;i++)R(104+i*22,top+3,1,110-top-2,'#3f5390');
+  if(e>.9){R(131,86,4,5,'#14131f');R(141,86,4,5,'#14131f');R(131,86,2,2,WHT);R(141,86,2,2,WHT)}
+  if(p>.7){A((p-.7)*3);R(162,78,3,1,WHT);R(167,72,4,1,WHT);R(173,65,5,1,WHT);A(1)}};
+
+S.sting=p=>{room({wall:'#1c1830',lamp:false});crab(CX,CY,{tint:.28,arms:'down',eyes:'half'});
+  const n=Math.floor(T*7);for(let i=0;i<4;i++){const k=n*7+i;const a=hs(k)*Math.PI*2,r=20+hs(k+9)*10;
+    pain(CX+8+Math.cos(a)*r*1.4,CY-6+Math.sin(a)*r*.8-3,hs(k+3)>.2?1:.4)}
+  for(let i=0;i<6;i++){const q=(T*.8+i/6)%1;A(.5*(1-q));R(CX-16+hs(i)*50,CY-12-q*26,1,1,'#ff9aa5')}A(1)};
+
+S.outline=p=>{room({wall:'#171a30',lamp:false});
+  const f=1-ease((p-.45)/.5)*.85;
+  crab(88,CY,{arms:p<.5?'up':'down',eyes:p<.6?'open':'closed',tint:.1,bob:false});
+  // 「你」的轮廓：虚线、柔光、模糊
+  const px=210,py=84;A(.12*f);R(px-16,py-14,32,54,'#ffd0e0');A(.2*f);R(px-12,py-10,24,46,'#ffd0e0');A(f);
+  const dots=[];for(let a=0;a<28;a++){const t=a/28*Math.PI*2;dots.push([px+Math.cos(t)*7,py+Math.sin(t)*7])}
+  dots.forEach((d,i)=>{if((i+Math.floor(T*3))%2===0)R(d[0],d[1],1,1,'#f3c4d8')});
+  for(let y=py+9;y<py+38;y+=2){const w=y<py+14?10:16;if(((y>>1)+Math.floor(T*3))%2===0){R(px-w/2,y,1,1,'#f3c4d8');R(px+w/2,y,1,1,'#f3c4d8')}}
+  A(1);
+  if(p<.5){}};
+
+S.words=(p,hard)=>{room({wall:'#171528',lamp:false,win:false});
+  const hh=cl(CX,CY,8,-2),hx0=hh[0],hy0=hh[1];let orb=hard?6:0;
+  for(let i=0;i<8;i++){
+    const q=(p*10-i)/1.6;if(q<0)continue;
+    if(q>=1){orb++;continue}
+    const e=ease(q),sy=36+(i%4)*20,x=lerp(310,hx0,e),y=lerp(sy,hy0,e);
+    const w=11;A(1);R(x-w/2,y-4,w,7,WHT);R(x-w/2+2,y+3,2,2,WHT);
+    if(Math.floor(T*4+i)%2)R(x-3,y-1,1,1,'#555');R(x-1,y-1,1,1,'#555');R(x+1,y-1,1,1,'#555');
+    if(q>.8){A((q-.8)*5);virus(x,y,2,1)}A(1);
+  }
+  crab(CX,CY,{eyes:p>.6?'spiral':'open',tint:hard?.45:Math.min(.4,p*.4)});
+  for(let i=0;i<Math.min(orb,10);i++){const a=T*2+i*(Math.PI*2/Math.min(orb,10)||1);virus(hx0+Math.cos(a)*24,hy0+Math.sin(a)*8-6,1,.9)}};
+
+S.antibody=(p,hard)=>{R(0,0,W,H,'#06101e');
+  for(let i=0;i<W;i+=8)R(i,0,1,H,'#0a1a2e');for(let j=0;j<H;j+=8)R(0,j,W,1,'#0a1a2e');
+  A(.35);g.save();g.translate(160,90);g.scale(4,4);crab(-8,-5,{col:'#2a7fb0',dk:'#1d5a80',bob:false,eyes:'closed',k:1});g.restore();A(1);
+  const N=7,alive=N-Math.floor(p*(N+.9));
+  for(let i=0;i<N;i++){
+    const a=T*1.1+i*Math.PI*2/N,x=160+Math.cos(a)*34,y=92+Math.sin(a)*16;
+    if(i<alive){
+      R(x,y,1,4,WHT);R(x-1,y-1,1,1,WHT);R(x-2,y-2,1,1,WHT);R(x+1,y-1,1,1,WHT);R(x+2,y-2,1,1,WHT);
+      if(i>=alive-2||hard){virus(x+5,y+1,1,.9)}
+    }else if(i===alive){ // 正在被击溃
+      const f=Math.floor(T*12)%2;R(x-2,y-2,5,5,f?RED:'#ffb3ba');virus(x+3,y,2,1);
+    }
+  }
+  const pul=2+Math.sin(T*3)*.6;virus(160,96,3,1);A(.25);R(160-14,96-14,28,28,VIO);A(1);
+  A(.5);R(160-pul-6,96,2*pul+12,1,VIO);A(1)};
+
+S.days=(p,hard)=>{
+  R(0,0,W,H,hard?'#1e1a30':'#1c2a38');R(0,FL,W,H-FL,hard?'#2a2040':'#26384a');
+  const d=Math.floor(p*7.99);
+  for(let i=0;i<8;i++){const x=40+i*30;R(x,16,24,22,WHT);R(x,16,24,5,i<=d?RED:'#c04050');
+    if(i<d){R(x+4,26,16,2,'#7a3040');R(x+4,30,10,2,'#7a3040')}
+    if(i===d){A(.5+.5*Math.sin(T*10));R(x-1,15,26,24,VIO);A(1);R(x,16,24,22,WHT);R(x,16,24,5,RED)}}
+  crab(CX,CY,{tint:lerp(hard?.4:.05,hard?.7:.45,ease(p)),mouth:'flat',eyes:'open'});
+  const n=Math.floor(p*26)+(hard?14:0);
+  for(let i=0;i<n;i++){const q=cl(CX,CY,1+hs(i)*14,1+hs(i+33)*8);A(.85);R(q[0],q[1],2+(i%3===0)*2,2,VIO);}A(1);
+  A(.3);R(CX-20,CY+14,60,2,'#000');A(1)};
+
+S.sink=(p,hard)=>{
+  R(0,0,W,H,hard?'#1a1630':'#17182c');
+  const sk=Math.floor(p*6)*2.2;
+  const fy=FL+(hard?0:0);
+  R(0,fy,W,H-fy,mix('#2b2540',VIO,.35+p*.3));
+  crab(CX,CY+sk,{tint:hard?.7+p*.2:.45+p*.25,eyes:p>.5?'half':'open',mouth:'flat',arms:'down',bob:false});
+  // 沼泽盖住下半身
+  R(0,fy,W,H-fy,mix('#2b2540',VIO,.35+p*.3));R(CX-14,fy-1,60,1,'#7a3aa8');
+  for(let r=0;r<3;r++){const q=(T*.7+r/3)%1;A(1-q);R(CX+8-q*26,fy+1,q*52,1,'#d8a8ff');A(1)}
+  for(let i=0;i<5;i++){const q=(T*.5+i/5)%1;A(1-q);R(CX-6+i*7,fy-q*10,1,1,'#d8a8ff')}A(1)};
+
+S.quiet=p=>{R(0,0,W,H,'#0d1022');
+  win(70,16,180,100,1);
+  R(0,120,W,H,'#161a30');R(0,118,W,2,'#2a2f50');
+  silhouette(160,134,2.2,'#06070e');
+  const z=p*4;A(.3);R(150,126,20,1,'#000');A(1);
+  // 万物宁静：只有一颗星缓缓划过
+  const sx=lerp(90,230,p),sy=lerp(30,60,p);A(.8);R(sx,sy,1,1,WHT);R(sx-1,sy-1,1,1,'#8fa4ff');R(sx-2,sy-2,1,1,'#40507f');A(1)};
+
+S.limp=p=>{
+  g.save();g.translate(160,90);g.rotate(Math.sin(T*.8)*.03+p*.05);g.translate(-160,-90);
+  room({wall:'#1a1830',lamp:false});
+  g.restore();
+  const gl=Math.floor(T*10);for(let i=0;i<4;i++){if(hs(gl+i)>.45)continue;A(.6);R(232,26+hs(gl*3+i)*50,54,1+hs(gl+i*7)*2,VIO)}A(1);
+  crab(CX,CY+3,{arms:'down',eyes:'half',tint:.55,mouth:'flat',bob:false});
+  A(.25);R(CX-4,CY+16,34,2,'#000');A(1)};
+
+S.hooked=p=>{room({wall:'#150f26',lamp:false,win:false});
+  const ox=lerp(250,200,ease(p)),oy=90+Math.sin(T*2)*4;
+  virus(ox,oy,6,1);
+  for(let i=0;i<10;i++){const q=(T*.7+i/10)%1;A(.7*(1-q));R(lerp(ox-8,CX+20,q),lerp(oy,CY+4,q)+Math.sin(q*9+i)*3,1,1,'#e0a8ff')}A(1);
+  crab(CX-10,CY,{eyes:p<.25?'open':'heart',tint:.55,arms:'up',mouth:null});
+  if(p>.3)for(let i=0;i<3;i++){const q=(T*.6+i/3)%1;A(1-q);R(CX+2+i*6,CY-6-q*22,1,1,RED);R(CX+4+i*6,CY-6-q*22,1,1,RED);R(CX+1+i*6,CY-5-q*22,5,1,RED);R(CX+2+i*6,CY-4-q*22,3,1,RED);}A(1)};
+
+S.rebuild=p=>{room({wall:'#171528',lamp:false});
+  const osc=Math.abs(Math.sin(p*Math.PI*3))*(1-p*.35);
+  const parts=[];
+  for(let j=0;j<2;j++)for(let i=0;i<4;i++)parts.push([i*4,j*5,4,5]);
+  parts.push([-4,2,4,3],[16,2,4,3],[4,2,2,3],[10,2,2,3],[2,10,2,3],[10,10,2,3]);
+  parts.forEach((q,k)=>{
+    const ox=(hs(k)-.5)*70*osc,oy=(hs(k+17)-.5)*50*osc-osc*10;
+    const inf=hs(k+5)<p*.55;
+    const col=k>=8&&k<10?'#14131f':inf?mix(ORG,VIO,.9):ORG;
+    R(CX+q[0]+ox,CY+q[1]+oy,q[2],q[3],col);
+  });
+  // 想复原的橙色虚影
+  A(.18);crab(CX,CY,{bob:false});A(1);
+  if(p>.7)for(let i=0;i<10;i++){A(.3);R(CX-10+hs(i)*50,CY-8+hs(i+3)*30,1,1,VIO)}A(1)};
+
+S.curtain=p=>{room({wall:'#1a1830',lamp:true});
+  const cl=ease(p/.5)*160;
+  R(0,0,cl,FL+14,'#5a2740');R(W-cl,0,cl,FL+14,'#5a2740');
+  for(let x=0;x<cl;x+=8){R(x,0,1,FL+14,'#44182f');R(W-x-1,0,1,FL+14,'#44182f')}
+  R(0,0,W,5,'#2a1020');
+  if(p>.45){
+    const a=ease((p-.45)/.4);A(a*.85);
+    const sx=T*8;
+    g.save();g.translate(160,78);g.scale(5,5);crab(-8,-5,{col:'#1a0a16',dk:'#1a0a16',bob:false,arms:'up',k:1});g.restore();
+    // 影子边缘不整齐：随机溢出的碎块
+    for(let i=0;i<26;i++){const k=Math.floor(T*4)*31+i;const ang=hs(k)*Math.PI*2,r=44+hs(k+8)*26;
+      const x=160+Math.cos(ang)*r*1.15,y=78+Math.sin(ang)*r*.55;if(x>0&&x<W)R(x,y,2+hs(k+2)*5,1+hs(k+3)*3,'#1a0a16')}
+    A(1)}};
+
+S.hide=p=>{room({wall:'#171528',lamp:false});
+  const open=1-ease((p-.4)/.4);
+  crab(CX,CY,{tint:.4,cover:ease((p-.4)/.4),arms:'side',eyes:'closed',bob:false});
+  if(open>0){A(open);const hq=cl(CX,CY,5,3);g.save();g.translate(Math.round(hq[0]),Math.round(hq[1]));g.scale(K,K);const hx0=0,hy0=0;const pul=Math.sin(T*6)>0?1:0;
+    R(hx0+1,hy0,2,1,RED);R(hx0+5,hy0,2,1,RED);R(hx0,hy0+1,8,2,RED);R(hx0+1,hy0+3,6,1,RED);R(hx0+2,hy0+4,4,1,RED);R(hx0+3,hy0+5,2,1,RED);
+    R(hx0+1,hy0+1,1,1,'#ffb3ba');A(.25*pul*open);R(hx0-3,hy0-3,14,12,RED);A(1);g.restore()}
+  else{const hq=cl(CX,CY,8,6);A(.25+.2*Math.sin(T*6));R(hq[0]-2,hq[1],4,4,VIO);A(1)}};
+
+S.small=p=>{R(0,0,W,H,'#05060c');
+  const r=lerp(60,40,p);
+  for(let i=r;i>0;i-=2){A(.045);g.fillStyle='#8a7ab8';g.beginPath();g.arc(160,125,i*1.5,0,Math.PI*2);g.fill()}A(1);
+  const sc=lerp(1.2,.8,ease(p));
+  g.save();g.translate(160,128);g.scale(sc,sc);crab(-8,-13,{tint:.3,eyes:'open',arms:'down',k:1.5});g.restore();
+  virus(200,122,1,.5+.5*Math.sin(T*3)**2)};
+
+S.sink2=p=>{
+  R(0,0,W,H,'#12183a');
+  const lv=lerp(150,30,ease(p));
+  crab(CX,lerp(80,100,p),{tint:.55,eyes:'closed',arms:'up',bob:true});
+  water(lv,.65);A(.2);R(0,lv,W,H,'#0a1030');A(1);
+  for(let y=Math.floor(lv/4)*4;y<H;y+=4)if(hs(y)>.5){A(.1);R(0,y,W,1,'#9fb4ff');A(1)}
+  bubbles(CX+8,CY,8)};
+
+S.carry=p=>{
+  R(0,0,W,H,'#0e1438');water(0,.7);
+  const y=lerp(30,70,p);
+  crab(CX,y,{tint:.6,eyes:'closed',arms:'down',cover:.8,bob:true});
+  for(let i=0;i<5;i++){const a=T*1.5+i*1.3;pain(CX+8+Math.cos(a)*20,y+3+Math.sin(a)*10,.9)}
+  for(let i=0;i<3;i++)pain(CX-4+i*10,y-4+((T*10+i*5)%8)*.2,.8);
+  bubbles(CX+8,y+10,10,16)};
+
+S.embrace=p=>{
+  R(0,0,W,H,'#120c2c');water(0,.7);
+  const vx=lerp(230,198,ease(p)),vy=88+Math.sin(T*1.5)*2;
+  virus(vx,vy,18+Math.sin(T*2)*1,1);
+  const cx=lerp(120,150,ease(p));
+  crab(cx,80,{tint:.7,eyes:'closed',cover:.0,arms:'up',mouth:'smile',bob:false});
+  // 入侵：丝线从病毒伸进螃蟹体内
+  for(let i=0;i<14;i++){const q=(T*.9+i/14)%1;const x=lerp(vx-18,cx+10,q),y=lerp(vy,86,q)+Math.sin(q*12+i)*3;A(.9*(1-q*.5));R(x,y,2,1,'#e0a8ff')}A(1);
+  bubbles(vx,vy+30,8,20)};
+
+S.soul=p=>{
+  R(0,0,W,H,'#0c0824');water(0,.6);
+  virus(238,60,12+Math.sin(T*2),1);
+  const dim=ease(p);
+  crab(CX-20,92,{tint:.6+dim*.35,eyes:p<.6?'half':'closed',arms:'down',mouth:'flat',bob:true});
+  // 灵魂：白色小魂灵，从头顶升起，被吸向病毒
+  const e=ease(p),sx=lerp(CX-12,238,e),sy=lerp(86,60,e)-Math.sin(e*Math.PI)*28;
+  const sc=lerp(1,.25,e*e);
+  g.save();g.translate(sx,sy);g.scale(sc,sc);A(.85);
+  R(-4,-8,8,10,WHT);R(-5,-6,10,6,WHT);R(-4,2,2,3,WHT);R(0,2,2,4,WHT);R(2,2,2,3,WHT);R(-3,-5,2,2,'#14131f');R(1,-5,2,2,'#14131f');
+  A(1);g.restore();
+  for(let i=0;i<12;i++){const q=(T*.8+i/12)%1;A(.6*(1-q));R(lerp(sx,sx-30,q)+hs(i)*6,lerp(sy,sy+10,q),1,1,WHT)}A(1)};
+
+S.smile=p=>{
+  R(0,0,W,H,'#0b0b22');water(0,.5);
+  const gl=ease(p);A(.15*gl);g.fillStyle='#ffd8a0';g.beginPath();g.arc(160,88,70,0,7);g.fill();A(.15*gl);g.beginPath();g.arc(160,88,45,0,7);g.fill();A(1);
+  const sc=lerp(2,3,p);
+  g.save();g.translate(160,92);g.scale(sc,sc);crab(-8,-6,{tint:.92,eyes:'happy',mouth:'smile',arms:'side',bob:false,k:1});
+  // 体内发光的病毒
+  A(.7+.3*Math.sin(T*3));R(-1,-2,2,2,'#e0a8ff');A(1);g.restore();
+  bubbles(160,120,12,30)};
+
+S.outro=p=>{R(0,0,W,H,'#000');
+  const a=1-p*.4;virus(160,90,3+Math.sin(T*2)*.6,a);
+  A(.5);crab(CX,CY+8,{tint:1,col:'#2a1040',dk:'#1a0a2a',eyes:'closed'});A(1)};
+
+/* ---------- 歌词 × 画面（时间为预估，可校准） ---------- */
+const L=[
+ [10,'毫无征兆 或线索','speck','环境一切如常，一个几乎看不见的紫色小点从窗外飘来，落进螃蟹身体——“毫无征兆”的感染瞬间'],
+ [15,'没有人能看出哪里有不同','nobody','路人一个个走过、停下打量，头顶冒出问号，又走开了：没有人看得出螃蟹哪里不同'],
+ [20,'穿着大衣 却在发抖','coat','螃蟹穿上蓝色大衣，身体发抖，呼出白气，背景是冷色调'],
+ [25,'才刚睡醒又躲回去了被窝','bed','螃蟹在床上醒来，打了个哈欠，随即把被子拉到只露出眼睛，缩回被窝'],
+ [31,'填上各种 原因不明的刺痛 刺痛','sting','红色闪电般的刺痛点随机出现在身体各处，一闪一闪，找不到来源'],
+ [37,'多希望你的轮廓 温柔不曾相识过','outline','右侧是“你”的虚线轮廓，柔光却模糊；螃蟹伸出钳子够它，轮廓逐渐淡去，螃蟹闭眼转身——要是从未相识'],
+ [44,'那些语言 逐渐成瘾 不断在脑海里 成了一种病原体','words','一句句对话气泡飘向螃蟹的头，进入头部就变成紫色病毒绕头盘旋，越积越多，眼睛变成漩涡（成瘾）'],
+ [52,'对你的秘密 逐渐破坏 所有的抗体 潜伏在我身体里 他','antibody','X光视角：白色“Y”形抗体绕着体内巡逻，被病毒一个个击溃消失，最后体内中心只剩一颗发光的病毒——潜伏'],
+ [60,'一天 一天 在我自以为平静的时候偷偷蔓延','days','日历一格一格翻过打叉；螃蟹面无表情、看似平静，身上的紫色斑点却一点点增多'],
+ [68,'一点 一点 在我自以为安稳的时候渐渐沦陷','sink','螃蟹站在地面上，一格一格往下沉，地面变成紫色沼泽，“一点一点”对应阶梯式的下沉'],
+ [76,'窗外 很宁静','quiet','大窗户里夜空宁静，星星闪烁，螃蟹的背影站在窗前，只有一颗流星划过'],
+ [80,'一切不对劲 这无理的无力','limp','画面轻微倾斜、窗外星空出现紫色故障线，螃蟹双钳垂下、眼睛半闭，没有力气'],
+ [86,'早已沉迷 着迷','hooked','一颗发光的紫色病毒球在远处，螃蟹眼睛变成爱心，被它牵引，头顶飘出小爱心'],
+ [90,'难以重建那原本的自己','rebuild','螃蟹被拆成像素方块，飞散后努力拼回去，但越来越多方块变成紫色，原来的橙色只剩虚影'],
+ [96,'窗帘 拉起 影子遮掩不起 不整齐','curtain','窗帘从两侧合拢，螃蟹巨大的影子投在帘上，边缘不断溢出碎块——遮不住'],
+ [103,'没什么 我的偏激 就让它藏在心底','hide','螃蟹胸口亮着红色的心，它用双钳把心捂住，闭上眼，只剩一点紫光从缝隙透出'],
+ [110,'那些语言 逐渐成瘾 不断在脑海里 成了一种病原体','words2','同第一遍副歌的“语言变病原体”，但螃蟹起点就已被感染（颜色更紫），环绕的病毒更多'],
+ [118,'我们的秘密 逐渐破坏 所有的抗体 潜伏在我身体里 他','antibody2','抗体再次被击溃，这一次身边始终带着病毒，更无招架之力'],
+ [126,'一天 一天 在我自以为平静的时候偷偷蔓延','days2','日历背景换成夜色，感染程度已从中高值起步，继续蔓延'],
+ [134,'一点 一点 在我自以为安稳的时候渐渐沦陷','sink2b','再次阶梯式下沉，这次螃蟹几乎全紫，眼睛半睁'],
+ [142,'我要的不多','small','暗场里一束小小的光，螃蟹缩小在光里；旁边一颗小小的紫点——我只要这么一点'],
+ [147,'就让我这样沉没','sink2','水位上升淹没螃蟹，它闭着眼缓缓下沉，冒出气泡'],
+ [153,'连痛也一起带着','carry','水底，螃蟹抱住自己，那些红色刺痛点环绕着它一起下沉，没有丢掉'],
+ [158,'拥抱着你的入侵','embrace','一颗巨大的病毒球，螃蟹张开钳子迎向它；紫色丝线从病毒伸进螃蟹体内，螃蟹在微笑'],
+ [164,'慢慢的吞蚀我的灵魂','soul','一只白色小灵魂从螃蟹头顶飘出，被吸向病毒并缩小消失，螃蟹的身体越来越紫、眼睛合上'],
+ [171,'但我依然可以微笑着','smile','镜头拉近，螃蟹浑身紫色，却闭眼露出开心的笑；体内病毒发光，身后一圈暖光——依然微笑'],
+ [180,'一天 一天','days3','日历再次翻过，（尾声）','days'],
+ [188,'一点 一点','sink3','螃蟹最后一次一格格下沉，画面渐暗','sink'],
+ [196,'—','outro','黑场，只剩病毒在跳动：潜伏仍在继续'],
+];
+const SC={words2:(p)=>S.words(p,true),antibody2:(p)=>S.antibody(p,true),days2:(p)=>S.days(p,true),sink2b:(p)=>S.sink(p,true),days3:(p)=>S.days(p,true),sink3:(p)=>S.sink(p,true)};
+const END=212;
+L.forEach((l,i)=>{l.t=l[0];l.text=l[1];l.sc=l[2];l.note=l[3];l.end=i<L.length-1?L[i+1][0]:END});
+
+/* ---------- 播放 ---------- */
+const $=id=>document.getElementById(id);
+const aud=new Audio();let hasAud=false,playing=false,t0=0,tl0=0;
+const cal={a1:null,a2:null,off:0};
+const tlOf=a=>{if(cal.a1!=null&&cal.a2!=null)return 10+(a-cal.a1)*(190/(cal.a2-cal.a1))+cal.off;return a+(cal.a1!=null?10-cal.a1:0)+cal.off};
+const audOf=t=>{if(cal.a1!=null&&cal.a2!=null)return cal.a1+(t-cal.off-10)*((cal.a2-cal.a1)/190);return t-cal.off-(cal.a1!=null?10-cal.a1:0)};
+let TL=0;
+const total=()=>END;
+function now(){if(hasAud)return tlOf(aud.currentTime);return playing?tl0+(performance.now()-t0)/1000:TL}
+function setTL(t){t=clamp(t,0,total());if(hasAud){aud.currentTime=Math.max(0,audOf(t))}tl0=t;t0=performance.now();TL=t}
+function play(){playing=true;$('play').textContent='❚❚ 暂停';if(hasAud)aud.play();else{tl0=TL;t0=performance.now()}}
+function pause(){playing=false;$('play').textContent='▶ 播放';if(hasAud)aud.pause();else TL=now()}
+$('play').onclick=()=>playing?pause():(TL>=total()-.1&&setTL(0),play());
+$('aud').onchange=e=>{const f=e.target.files[0];if(!f)return;pause();aud.src=URL.createObjectURL(f);hasAud=true;cal.a1=cal.a2=null;cal.off=0;$('c1').disabled=$('c2').disabled=false;aud.onloadedmetadata=()=>{TL=0};aud.currentTime=0;$('tm').textContent='已载入音频'};
+$('c1').onclick=()=>{cal.a1=aud.currentTime;cal.a2=null;$('c1').textContent='校准① ✓'};
+$('c2').onclick=()=>{if(cal.a1==null||aud.currentTime<=cal.a1+30)return alert('请先点校准①，再在歌曲后段点校准②');cal.a2=aud.currentTime;$('c2').textContent='校准② ✓'};
+$('fs').onclick=()=>$('stage').requestFullscreen&&$('stage').requestFullscreen();
+$('seek').oninput=e=>setTL(e.target.value/1000*total());
+addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();$('play').click()}
+  if(e.code==='ArrowLeft'){cal.off-=.5}if(e.code==='ArrowRight'){cal.off+=.5}});
+const fmt=s=>{s=Math.max(0,s|0);return(s/60|0)+':'+String(s%60).padStart(2,'0')};
+
+const sb=$('sb');
+L.forEach((l,i)=>{const d=document.createElement('div');d.className='row';d.innerHTML=`<div class="t">${fmt(l.t)}</div><div class="l">${l.text}</div><div class="n">🎞 ${l.note}</div>`;d.onclick=()=>{setTL(l.t+.01);if(!playing)play()};sb.appendChild(d);l.el=d});
+
+let curI=-1;
+function frame(){
+  let t=now();
+  if(playing&&!hasAud&&t>=total()){pause();TL=total();t=total()}
+  if(hasAud&&aud.ended&&playing)pause();
+  T=t;
+  let i=0;for(let k=0;k<L.length;k++)if(t>=L[k].t)i=k;
+  const intro=t<L[0].t,l=L[i];
+  const p=intro?clamp(t/L[0].t):clamp((t-l.t)/(l.end-l.t));
+  g.globalAlpha=1;
+  const sc=intro?'intro':l.sc;
+  const fn=SC[sc]||S[sc];fn(p);
+  const fin=Math.min(p,1-(intro?0:0));
+  if(!intro&&p<.06){A(1-p/.06);R(0,0,W,H,'#000');A(1)}
+  if(!intro&&p>.95&&i<L.length-1){A((p-.95)/.05);R(0,0,W,H,'#000');A(1)}
+  if(t>L[L.length-1].t+8){A(clamp((t-L[L.length-1].t-8)/6));R(0,0,W,H,'#000');A(1)}
+  if(!intro&&t>=L[0].t)$('title').style.opacity=0;else $('title').style.opacity=t>7?clamp(1-(t-7)/2):1;
+  $('cap').textContent=intro||l.text==='—'?'':l.text;
+  if(i!==curI&&!intro){if(curI>=0)L[curI].el.classList.remove('on');l.el.classList.add('on');curI=i;if(playing)l.el.scrollIntoView({block:'nearest'})}
+  $('seek').value=t/total()*1000;
+  $('tm').textContent=fmt(t)+' / '+fmt(total());
+  requestAnimationFrame(frame);
+}
+$('title').style.opacity=1;frame();
+window.__setT=t=>{playing=false;TL=t;hasAud=false};
+</script>
+</body>
+</html>
