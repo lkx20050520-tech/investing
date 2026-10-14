@@ -32,8 +32,7 @@ h2{font-size:16px;margin:22px 0 8px;font-weight:600}
 </head>
 <body>
 <main>
-<div id="stage"><canvas id="c" width="320" height="180"></canvas><div id="cap"></div>
-<div id="title"><b>潜伏期</b><span>孙盛希 Shi Shi</span></div></div>
+<div id="stage"><canvas id="out" width="1280" height="720"></canvas></div>
 
 <div class="ctl">
   <button id="play">▶ 播放</button>
@@ -55,7 +54,7 @@ h2{font-size:16px;margin:22px 0 8px;font-weight:600}
 
 <script>
 const W=320,H=180,FL=125;
-const c=document.getElementById('c'),g=c.getContext('2d');g.imageSmoothingEnabled=false;
+const c=document.createElement('canvas');c.width=W;c.height=H;let g=c.getContext('2d');const g1=g;g.imageSmoothingEnabled=false;
 const ORG='#e07a4f',ORGD='#b0502e',VIO='#b44cff',VIOD='#5b1f8a',RED='#ff4d5e',WHT='#e8ecf8';
 const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x)),lerp=(a,b,t)=>a+(b-a)*t,ease=p=>{p=clamp(p);return p*p*(3-2*p)};
 const hx=s=>[1,3,5].map(i=>parseInt(s.slice(i,i+2),16));
@@ -70,19 +69,29 @@ const K=2;
 const cl=(x,y,lx,ly)=>[x+8+(lx-8)*K,y+13+(ly-13)*K];
 function crab(x,y,o={}){
   const ks=o.k||K;g.save();g.translate(Math.round(x+8),Math.round(y+13));g.scale(ks,ks);x=-8;y=-13;
-  const tint=o.tint||0,body=o.col||mix(ORG,VIO,tint),dk=o.dk||mix(ORGD,VIOD,tint);
+  const tint=o.tint||0,flat=!!o.col;
+  const body=o.col||mix(ORG,VIO,tint),dk=o.dk||mix(ORGD,VIOD,tint);
+  const hi=mix('#f6b08a',mix('#e8b8ff',VIO,.25),tint),ol=mix(dk,'#000',.45);
   const sh=o.shiver?Math.round(Math.sin(T*45)*o.shiver):0;x+=sh;
-  const dy=o.bob===false?0:Math.round(Math.sin(T*3)*.6);y+=dy;
-  for(let i=0;i<4;i++)R(x+2+i*4,y+10,2,3,dk);
+  const dy=o.bob===false?0:Math.round(Math.sin(T*3)*.6);
+  if(!flat){A(.3);R(-9,-1,18,2,'#000');A(1)}
+  y+=dy;
+  if(!flat){R(x-1,y-1,18,12,ol);}
+  for(let i=0;i<4;i++){R(x+2+i*4-.0,y+10,2,3,dk)}
   const k=o.cover||0,ar=o.arms||'side';
-  const ay=ar==='up'?y-3:ar==='down'?y+7:y+2;
+  const wv=ar==='side'?Math.round(Math.sin(T*2.2)*.7):0;
+  const ay=(ar==='up'?y-3:ar==='down'?y+7:y+2)+wv;
   const lx=lerp(x-4,x+3,k),rx=lerp(x+16,x+9,k),cy=lerp(ay,y+4,k);
-  R(lx,cy,4,3,body);R(lx-1,cy-1,2,2,body);R(rx,cy,4,3,body);R(rx+3,cy-1,2,2,body);
+  R(lx,cy,4,3,body);R(lx-1,cy-1,2,2,body);R(lx-1,cy-2,1,1,body);R(lx+1,cy-2,1,1,body);
+  R(rx,cy,4,3,body);R(rx+3,cy-1,2,2,body);R(rx+3,cy-2,1,1,body);R(rx+5,cy-2,1,1,body);
+  if(!flat){R(lx-1,cy,1,1,dk);R(rx+4,cy,1,1,dk)}
   R(x,y,16,10,body);R(x,y+8,16,2,dk);
+  if(!flat){R(x+1,y,14,1,hi);R(x,y+1,1,4,hi);A(.55);R(x+2,y+6,2,1,'#ff8a9a');R(x+12,y+6,2,1,'#ff8a9a');A(1)}
   if(o.coat){R(x-1,y+4,18,7,'#3b6ea8');R(x-1,y+4,18,1,'#5b8ec8');R(x+7,y+4,2,7,'#2c5486');R(x+10,y+6,1,1,WHT);R(x+10,y+8,1,1,WHT)}
-  const e=o.eyes||'open',ex=[x+4,x+10],ey=y+2;
+  let e=o.eyes||'open';if(e==='open'&&(T%3.7)<.12)e='closed';
+  const ex=[x+4,x+10],ey=y+2;
   const eye=(X)=>{
-    if(e==='open'){R(X,ey,2,3,'#14131f');R(X,ey,1,1,WHT)}
+    if(e==='open'){R(X,ey,2,3,'#14131f');R(X,ey,1,1,WHT);R(X+1,ey+2,1,1,'#4a4868')}
     else if(e==='half'){R(X,ey+1,2,2,'#14131f');R(X,ey,2,1,dk)}
     else if(e==='closed'){R(X-.5,ey+2,3,1,'#14131f')}
     else if(e==='happy'){R(X-.5,ey+2,1,1,'#14131f');R(X+.5,ey+1,1,1,'#14131f');R(X+1.5,ey+2,1,1,'#14131f')}
@@ -114,10 +123,19 @@ function win(x,y,w,h,q){R(x-2,y-2,w+4,h+4,'#4a4468');sky(x,y,w,h,q);R(x+w/2-1,y,
 const mood=()=>clamp((T-9)/165,0,.88); // 感染越深，房间越暗越紫
 const wallC=(side=0)=>mix(side?'#c9cddc':'#e6e8f0','#2a2548',mood());
 const floorC=()=>mix('#2f58b8','#1e1a40',mood());
+function clock(cx,cy,m){
+  const face=mix('#f6f6fa','#5a5484',m),rim=mix('#7a7fa0','#2a2650',m),ink=mix('#2a2848','#d8d0ff',m);
+  for(let dy=-10;dy<=10;dy++)for(let dx=-10;dx<=10;dx++){const d=dx*dx+dy*dy;if(d<=100)R(cx+dx,cy+dy,1,1,d>72?rim:face)}
+  for(let k=0;k<12;k++){const a=k*Math.PI/6;R(cx+Math.cos(a)*8,cy+Math.sin(a)*8,1,1,ink)}
+  const hand=(a,l)=>{for(let s=0;s<=l;s++)R(cx+Math.cos(a)*s,cy+Math.sin(a)*s,1,1,ink)};
+  hand(T*.5-Math.PI/2,7);hand(T*.04-Math.PI/2,4);R(cx,cy,1,1,RED);
+}
 function room(o={}){
   const m=mood(),cx=196;
   R(0,0,cx,FL,wallC(0));R(cx,0,W-cx,FL,wallC(1));            // 墙角：左亮右暗
   R(cx,0,1,FL,mix('#a9aec4','#17142e',m));
+  for(let y=0;y<30;y+=3){A(.16*(1-y/30));R(0,y,W,3,'#000');A(1)}
+  if(o.clock!==false)clock(52,44,m);
   R(0,FL-3,W,3,mix('#f2f3f8','#3a3560',m));                    // 踢脚线
   R(0,FL,W,H-FL,floorC());
   for(let x=0;x<W;x+=6)for(let y=FL+2;y<H;y+=6)if(hs(x*7+y)>.55)R(x,y,2,1,mix('#3d69cc','#2a2458',m)); // 地毯纹理
@@ -373,9 +391,7 @@ S.after2=p=>{R(0,0,W,H,'#030308');
   if(lit>0){for(let i=40;i>0;i-=2){A(.04*lit);g.fillStyle='#8a7ab8';g.beginPath();g.arc(160,125,i*1.5,0,7);g.fill()}A(1);
     crab(CX,CY,{tint:.75,eyes:'half',arms:'down',bob:false});A(1-lit);R(0,0,W,H,'#030308');A(1)}};
 
-S.outro=p=>{R(0,0,W,H,'#000');
-  const a=1-p*.4;virus(160,90,3+Math.sin(T*2)*.6,a);
-  A(.5);crab(CX,CY+8,{tint:1,col:'#2a1040',dk:'#1a0a2a',eyes:'closed'});A(1)};
+S.outro=p=>{R(0,0,W,H,'#000');const a=1-p*.3;for(let r=40;r>0;r-=6){A(.03+.02*Math.sin(T*2));g.fillStyle=VIO;g.beginPath();g.arc(160,42,r,0,7);g.fill()}A(1);virus(160,42,3+Math.sin(T*2)*.6,a)};
 
 /* ---------- 歌词 × 画面（时间为预估，可校准） ---------- */
 const L=[
@@ -415,12 +431,85 @@ const SC={words2:(p)=>S.words(p,true),antibody2:(p)=>S.antibody(p,true),days2:(p
 const END=256.6;
 L.forEach((l,i)=>{l.t=l[0];l.text=l[1];l.sc=l[2];l.note=l[3];l.end=i<L.length-1?L[i+1][0]:END});
 
-/* ---------- 播放 ---------- */
+/* ---------- 合成：镜头、辉光、颗粒、字幕 ---------- */
 const $=id=>document.getElementById(id);
+const out=$('out'),og=out.getContext('2d');
+const mk=(w,h)=>{const e=document.createElement('canvas');e.width=w;e.height=h;return e};
+const c2=mk(W,H),g2=c2.getContext('2d');g2.imageSmoothingEnabled=false;
+const bigA=mk(1280,720),bigB=mk(1280,720),ba=bigA.getContext('2d'),bb=bigB.getContext('2d');ba.imageSmoothingEnabled=bb.imageSmoothingEnabled=false;
+const tiny=mk(64,36),tg=tiny.getContext('2d'),mid=mk(160,90),mg=mid.getContext('2d');tg.imageSmoothingEnabled=mg.imageSmoothingEnabled=true;
+const vg=og.createRadialGradient(640,360,260,640,360,800);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.62)');
+const grain=[];for(let k=0;k<4;k++){const e=mk(256,256),x=e.getContext('2d'),d=x.createImageData(256,256);for(let q=0;q<d.data.length;q+=4){const v=Math.random()*255;d.data[q]=d.data[q+1]=d.data[q+2]=v;d.data[q+3]=255}x.putImageData(d,0,0);grain.push(og.createPattern(e,'repeat'))}
+const SERIF='"Songti SC","Noto Serif CJK SC","Source Han Serif SC","STSong","SimSun","WenQuanYi Zen Hei",serif';
+const BRIGHT=new Set(['intro','speck','nobody','coat','bed','sting','outline','words']);
+const BAR=34,FD=.7;
+function txt(s,x,y,size,col,a,sp,glow,wt){
+  if(a<=0)return;og.save();og.globalAlpha=a;og.textAlign='center';og.textBaseline='middle';
+  og.font=`${wt||400} ${size}px ${SERIF}`;if('letterSpacing' in og)og.letterSpacing=sp+'px';
+  og.shadowColor=glow||'rgba(0,0,0,.8)';og.shadowBlur=glow?22:10;og.shadowOffsetY=glow?0:2;og.fillStyle=col;og.fillText(s,x+(sp/2),y);og.restore();
+}
+const CREDITS=[['潜伏期',46,'#fff',3],['孙盛希  Shi Shi',22,'#cfc4ee',3],['',0,'',0],['词　剃刀蒋 · 孙盛希 · 张伍',20,'#d8d4ee',2],['曲　孙盛希 · 米奇林 MCKY · 剃刀蒋',20,'#d8d4ee',2],['编曲　王韵筑',20,'#d8d4ee',2],['弦乐　曜爆甘音乐工作室',20,'#d8d4ee',2],['',0,'',0],['MV 动画　Claude Code · 小螃蟹',16,'#9a95c0',2]];
+function camDraw(src,z,ox,oy,a){og.save();og.globalAlpha=a;og.translate(640+ox,360+oy);og.scale(z,z);og.translate(-640,-360);og.drawImage(src,0,0);og.restore()}
+function compose(t){
+  T=t;let i=0;for(let k=0;k<L.length;k++)if(t>=L[k].t)i=k;
+  const intro=t<L[0].t,l=L[i];
+  const p=intro?clamp(t/L[0].t):clamp((t-l.t)/(l.end-l.t));
+  const key=intro?'intro':l.sc,fn=intro?S.intro:(SC[l.sc]||S[l.sc]);
+  g=g1;g.globalAlpha=1;fn(p);
+  const dt=intro?99:t-l.t;let fade=0;
+  if(!intro&&dt<FD){ // 与上一场景叠化
+    const pl=i>0?L[i-1]:null,pfn=pl?(SC[pl.sc]||S[pl.sc]):S.intro;
+    g=g2;g.globalAlpha=1;pfn(1);g=g1;fade=1-ease(dt/FD);
+  }
+  bb.drawImage(c,0,0,1280,720);
+  const zc=1+.035*p,ox=Math.sin(t*.55)*2.5,oy=Math.cos(t*.43)*1.5;
+  og.globalCompositeOperation='source-over';og.imageSmoothingEnabled=true;og.imageSmoothingQuality='high';
+  og.fillStyle='#000';og.fillRect(0,0,1280,720);
+  if(fade>0){ba.drawImage(c2,0,0,1280,720);camDraw(bigA,1.035,ox,oy,1)}
+  camDraw(bigB,zc,ox,oy,fade>0?1-fade:1);
+  // 辉光（亮处向外晕开）
+  tg.drawImage(c,0,0,64,36);mg.drawImage(c,0,0,160,90);
+  og.save();og.globalCompositeOperation='screen';og.imageSmoothingEnabled=true;
+  og.globalAlpha=.30;og.drawImage(tiny,0,0,1280,720);og.globalAlpha=.20;og.drawImage(mid,0,0,1280,720);og.restore();
+  // 窗口光柱 + 灰尘
+  const m=mood();
+  if(BRIGHT.has(key)&&m<.6){og.save();og.globalCompositeOperation='screen';
+    const gr=og.createLinearGradient(1000,104,600,560);gr.addColorStop(0,`rgba(255,240,205,${.16*(1-m)})`);gr.addColorStop(1,'rgba(255,240,205,0)');
+    og.fillStyle=gr;og.beginPath();og.moveTo(928,104);og.lineTo(1144,104);og.lineTo(780,560);og.lineTo(400,560);og.fill();og.restore()}
+  og.save();og.globalCompositeOperation='screen';
+  for(let q=0;q<36;q++){const x=(hs(q)*1280+t*(6+hs(q+9)*10))%1280,y=((hs(q+30)*720-t*(3+hs(q+5)*5))%720+720)%720,sz=1.5+hs(q+60)*2;
+    og.globalAlpha=(.14+.16*Math.sin(t*1.3+q))*(.4+m*.6);og.fillStyle=m>.45?'#c8a0ff':'#fff4d8';og.fillRect(x,y,sz,sz)}
+  og.restore();
+  // 暗角、颗粒、电影黑边
+  og.fillStyle=vg;og.fillRect(0,0,1280,720);
+  og.save();og.globalCompositeOperation='overlay';og.globalAlpha=.11;og.translate(Math.floor(hs(t*24)*256),Math.floor(hs(t*24+7)*256));og.fillStyle=grain[Math.floor(t*24)%4];og.fillRect(-256,-256,1792,1232);og.restore();
+  og.fillStyle='#000';og.fillRect(0,0,1280,BAR);og.fillRect(0,720-BAR,1280,BAR);
+  // 标题卡
+  if(intro){const a=clamp((t-.8)/1.6)*clamp((8.6-t)/1.8),r=(1-clamp((t-.8)/2))*10;
+    txt('潜伏期',640,170,112,'#232a58',a,34,'rgba(255,255,255,.95)',600);
+    if(a>0){og.save();og.globalAlpha=a*.7;og.fillStyle='#3a3f78';og.fillRect(590,236,100,2);og.restore()}
+    txt('孙盛希  Shi Shi',640,276,26,'#3a3f78',a,10,'rgba(255,255,255,.9)');
+    txt('Where is SHI?',640,312,17,'#5a5f98',a*.8,6,'rgba(255,255,255,.8)')}
+  // 歌词字幕：淡入上浮、尾部淡出
+  if(!intro&&l.text!=='—'){const dl=t-l.t,du=l.end-l.t,a=clamp(dl/.5)*clamp((du-dl)/.45),rise=(1-ease(dl/.5))*10;
+    txt(l.text,640,654+rise,36,'#fff',a,5,'rgba(120,90,200,.9)',500)}
+  // 片尾字幕
+  if(t>=L[L.length-1].t){const cs=L[L.length-1].t+1;let y=262;
+    CREDITS.forEach((r,k)=>{if(r[1]){txt(r[0],640,y,r[1],r[2],clamp((t-cs-k*.8)/1.2),r[3],k===0?'rgba(180,76,255,.8)':null,k===0?600:400)}y+=r[1]?r[1]+20:12})}
+  // 进度细线 + 角标
+  og.fillStyle='rgba(180,76,255,.7)';og.fillRect(0,720-BAR,1280*t/END,2);
+  txt('孙盛希 · 潜伏期',92,BAR+20,14,'#fff',.45,3);
+  // 结尾淡出
+  const te=END-6.6;if(t>te){og.fillStyle=`rgba(0,0,0,${clamp((t-te)/5)})`;og.fillRect(0,0,1280,720)}
+  return {i,intro};
+}
+window.__render=t=>{compose(t);return out.toDataURL('image/jpeg',.93)};
+
+/* ---------- 播放 ---------- */
 const aud=new Audio();let hasAud=false,playing=false,t0=0,tl0=0;
 const cal={a1:null,a2:null,off:0};
-const tlOf=a=>{if(cal.a1!=null&&cal.a2!=null)return 10+(a-cal.a1)*(190/(cal.a2-cal.a1))+cal.off;return a+(cal.a1!=null?10-cal.a1:0)+cal.off};
-const audOf=t=>{if(cal.a1!=null&&cal.a2!=null)return cal.a1+(t-cal.off-10)*((cal.a2-cal.a1)/190);return t-cal.off-(cal.a1!=null?10-cal.a1:0)};
+const tlOf=a=>{if(cal.a1!=null&&cal.a2!=null)return 9.2+(a-cal.a1)*(190/(cal.a2-cal.a1))+cal.off;return a+(cal.a1!=null?9.2-cal.a1:0)+cal.off};
+const audOf=t=>{if(cal.a1!=null&&cal.a2!=null)return cal.a1+(t-cal.off-9.2)*((cal.a2-cal.a1)/190);return t-cal.off-(cal.a1!=null?9.2-cal.a1:0)};
 let TL=0;
 const total=()=>END;
 function now(){if(hasAud)return tlOf(aud.currentTime);return playing?tl0+(performance.now()-t0)/1000:TL}
@@ -428,7 +517,7 @@ function setTL(t){t=clamp(t,0,total());if(hasAud){aud.currentTime=Math.max(0,aud
 function play(){playing=true;$('play').textContent='❚❚ 暂停';if(hasAud)aud.play();else{tl0=TL;t0=performance.now()}}
 function pause(){playing=false;$('play').textContent='▶ 播放';if(hasAud)aud.pause();else TL=now()}
 $('play').onclick=()=>playing?pause():(TL>=total()-.1&&setTL(0),play());
-$('aud').onchange=e=>{const f=e.target.files[0];if(!f)return;pause();aud.src=URL.createObjectURL(f);hasAud=true;cal.a1=cal.a2=null;cal.off=0;$('c1').disabled=$('c2').disabled=false;aud.onloadedmetadata=()=>{TL=0};aud.currentTime=0;$('tm').textContent='已载入音频'};
+$('aud').onchange=e=>{const f=e.target.files[0];if(!f)return;pause();aud.src=URL.createObjectURL(f);hasAud=true;cal.a1=cal.a2=null;cal.off=0;$('c1').disabled=$('c2').disabled=false;aud.currentTime=0;$('tm').textContent='已载入音频'};
 $('c1').onclick=()=>{cal.a1=aud.currentTime;cal.a2=null;$('c1').textContent='校准① ✓'};
 $('c2').onclick=()=>{if(cal.a1==null||aud.currentTime<=cal.a1+30)return alert('请先点校准①，再在歌曲后段点校准②');cal.a2=aud.currentTime;$('c2').textContent='校准② ✓'};
 $('fs').onclick=()=>$('stage').requestFullscreen&&$('stage').requestFullscreen();
@@ -436,53 +525,20 @@ $('seek').oninput=e=>setTL(e.target.value/1000*total());
 addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();$('play').click()}
   if(e.code==='ArrowLeft'){cal.off-=.5}if(e.code==='ArrowRight'){cal.off+=.5}});
 const fmt=s=>{s=Math.max(0,s|0);return(s/60|0)+':'+String(s%60).padStart(2,'0')};
-
 const sb=$('sb');
 L.forEach((l,i)=>{const d=document.createElement('div');d.className='row';d.innerHTML=`<div class="t">${fmt(l.t)}</div><div class="l">${l.text}</div><div class="n">🎞 ${l.note}</div>`;d.onclick=()=>{setTL(l.t+.01);if(!playing)play()};sb.appendChild(d);l.el=d});
-
 let curI=-1;
 function frame(){
   let t=now();
   if(playing&&!hasAud&&t>=total()){pause();TL=total();t=total()}
   if(hasAud&&aud.ended&&playing)pause();
-  T=t;
-  let i=0;for(let k=0;k<L.length;k++)if(t>=L[k].t)i=k;
-  const intro=t<L[0].t,l=L[i];
-  const p=intro?clamp(t/L[0].t):clamp((t-l.t)/(l.end-l.t));
-  g.globalAlpha=1;
-  const sc=intro?'intro':l.sc;
-  const fn=SC[sc]||S[sc];fn(p);
-  const fin=Math.min(p,1-(intro?0:0));
-  if(!intro&&p<.06){A(1-p/.06);R(0,0,W,H,'#000');A(1)}
-  if(!intro&&p>.95&&i<L.length-1){A((p-.95)/.05);R(0,0,W,H,'#000');A(1)}
-  if(t>L[L.length-1].t+8){A(clamp((t-L[L.length-1].t-8)/6));R(0,0,W,H,'#000');A(1)}
-  if(!intro&&t>=L[0].t)$('title').style.opacity=0;else $('title').style.opacity=t>6.5?clamp(1-(t-6.5)/2.2):1;
-  $('cap').textContent=intro||l.text==='—'?'':l.text;
-  if(i!==curI&&!intro){if(curI>=0)L[curI].el.classList.remove('on');l.el.classList.add('on');curI=i;if(playing)l.el.scrollIntoView({block:'nearest'})}
+  const r=compose(t);
+  if(r.i!==curI&&!r.intro){if(curI>=0)L[curI].el.classList.remove('on');L[r.i].el.classList.add('on');curI=r.i;if(playing)L[r.i].el.scrollIntoView({block:'nearest'})}
   $('seek').value=t/total()*1000;
   $('tm').textContent=fmt(t)+' / '+fmt(total());
   requestAnimationFrame(frame);
 }
-
-/* ---------- 导出用：逐帧渲染成 1280x720 画面（含字幕） ---------- */
-const exc=document.createElement('canvas');exc.width=1280;exc.height=720;const eg=exc.getContext('2d');
-window.__render=t=>{
-  T=t;let i=0;for(let k=0;k<L.length;k++)if(t>=L[k].t)i=k;
-  const intro=t<L[0].t,l=L[i];
-  const p=intro?clamp(t/L[0].t):clamp((t-l.t)/(l.end-l.t));
-  g.globalAlpha=1;const sc=intro?'intro':l.sc;(SC[sc]||S[sc])(p);
-  if(!intro&&p<.06){A(1-p/.06);R(0,0,W,H,'#000');A(1)}
-  if(!intro&&p>.95&&i<L.length-1){A((p-.95)/.05);R(0,0,W,H,'#000');A(1)}
-  const te=L[L.length-1].t+8;if(t>te){A(clamp((t-te)/6));R(0,0,W,H,'#000');A(1)}
-  eg.imageSmoothingEnabled=false;eg.drawImage(c,0,0,1280,720);
-  eg.textAlign='center';eg.textBaseline='middle';
-  const ta=t>=L[0].t?0:(t>6.5?clamp(1-(t-6.5)/2.2):1);
-  if(ta>0){eg.globalAlpha=ta;eg.shadowColor='#fff';eg.shadowBlur=24;eg.fillStyle='#232a58';eg.font='600 110px "Noto Sans CJK SC","PingFang SC",sans-serif';eg.fillText('潜 伏 期',640,200);
-    eg.shadowBlur=8;eg.fillStyle='#3a3f78';eg.font='28px "Noto Sans CJK SC","PingFang SC",sans-serif';eg.fillText('孙盛希  Shi Shi',640,290);eg.globalAlpha=1;eg.shadowBlur=0}
-  if(!intro&&l.text!=='—'){eg.shadowColor='#000';eg.shadowBlur=10;eg.shadowOffsetY=2;eg.fillStyle='#fff';eg.font='34px "Noto Sans CJK SC","PingFang SC",sans-serif';eg.fillText(l.text,640,670);eg.shadowBlur=0;eg.shadowOffsetY=0}
-  return exc.toDataURL('image/jpeg',.93);
-};
-$('title').style.opacity=1;frame();
+frame();
 window.__setT=t=>{playing=false;TL=t;hasAud=false};
 </script>
 </body>
