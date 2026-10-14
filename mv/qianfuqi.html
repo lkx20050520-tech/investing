@@ -445,6 +445,25 @@ function frame(){
   $('tm').textContent=fmt(t)+' / '+fmt(total());
   requestAnimationFrame(frame);
 }
+
+/* ---------- 导出用：逐帧渲染成 1280x720 画面（含字幕） ---------- */
+const exc=document.createElement('canvas');exc.width=1280;exc.height=720;const eg=exc.getContext('2d');
+window.__render=t=>{
+  T=t;let i=0;for(let k=0;k<L.length;k++)if(t>=L[k].t)i=k;
+  const intro=t<L[0].t,l=L[i];
+  const p=intro?clamp(t/L[0].t):clamp((t-l.t)/(l.end-l.t));
+  g.globalAlpha=1;const sc=intro?'intro':l.sc;(SC[sc]||S[sc])(p);
+  if(!intro&&p<.06){A(1-p/.06);R(0,0,W,H,'#000');A(1)}
+  if(!intro&&p>.95&&i<L.length-1){A((p-.95)/.05);R(0,0,W,H,'#000');A(1)}
+  const te=L[L.length-1].t+8;if(t>te){A(clamp((t-te)/6));R(0,0,W,H,'#000');A(1)}
+  eg.imageSmoothingEnabled=false;eg.drawImage(c,0,0,1280,720);
+  eg.textAlign='center';eg.textBaseline='middle';
+  const ta=t>=L[0].t?0:(t>7?clamp(1-(t-7)/2):1);
+  if(ta>0){eg.globalAlpha=ta;eg.shadowColor='#fff';eg.shadowBlur=24;eg.fillStyle='#232a58';eg.font='600 110px "Noto Sans CJK SC","PingFang SC",sans-serif';eg.fillText('潜 伏 期',640,200);
+    eg.shadowBlur=8;eg.fillStyle='#3a3f78';eg.font='28px "Noto Sans CJK SC","PingFang SC",sans-serif';eg.fillText('孙盛希  Shi Shi',640,290);eg.globalAlpha=1;eg.shadowBlur=0}
+  if(!intro&&l.text!=='—'){eg.shadowColor='#000';eg.shadowBlur=10;eg.shadowOffsetY=2;eg.fillStyle='#fff';eg.font='34px "Noto Sans CJK SC","PingFang SC",sans-serif';eg.fillText(l.text,640,670);eg.shadowBlur=0;eg.shadowOffsetY=0}
+  return exc.toDataURL('image/jpeg',.93);
+};
 $('title').style.opacity=1;frame();
 window.__setT=t=>{playing=false;TL=t;hasAud=false};
 </script>
